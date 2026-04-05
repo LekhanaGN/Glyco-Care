@@ -5,6 +5,7 @@ import {
   UploadCloud, FileText, FileImage, FileSpreadsheet,
   CheckCircle2, XCircle, Trash2, AlertTriangle, ChevronDown, ChevronUp
 } from "lucide-react";
+import { useHealthData } from "@/contexts/health-data-context";
 
 /* ── Illustration ── */
 function UploadIllustration() {
@@ -49,6 +50,8 @@ interface UploadedFile {
   status: UploadStatus;
   progress: number;
   error?: string;
+  file?: File;
+  readings?: ParsedReading[];
 }
 
 interface ParsedReading {
@@ -56,20 +59,166 @@ interface ParsedReading {
   time: string;
   glucose: number;
   flag: "normal" | "low" | "high";
+  rawDate?: string; // Original date string for unique day counting (YYYY-MM-DD format)
 }
 
-const MOCK_READINGS: ParsedReading[] = [
-  { date: "Apr 3", time: "07:12", glucose: 82, flag: "normal" },
-  { date: "Apr 3", time: "12:45", glucose: 115, flag: "normal" },
-  { date: "Apr 3", time: "18:30", glucose: 68, flag: "low" },
-  { date: "Apr 3", time: "21:55", glucose: 71, flag: "normal" },
-  { date: "Apr 4", time: "07:03", glucose: 78, flag: "normal" },
-  { date: "Apr 4", time: "13:10", glucose: 142, flag: "high" },
-  { date: "Apr 4", time: "19:22", glucose: 63, flag: "low" },
-  { date: "Apr 5", time: "07:40", glucose: 91, flag: "normal" },
-  { date: "Apr 5", time: "12:15", glucose: 107, flag: "normal" },
-  { date: "Apr 5", time: "17:50", glucose: 98, flag: "normal" },
-];
+function determineFlag(glucose: number): "normal" | "low" | "high" {
+  if (glucose < 70) return "low";
+  if (glucose > 140) return "high";
+  return "normal";
+}
+
+function parseCSV(content: string): ParsedReading[] {
+  const lines = content.trim().split("\n");
+  if (lines.length < 2) return [];
+  
+  const headerLine = lines[0].toLowerCase();
+  const headers = headerLine.split(",").map(h => h.trim());
+  
+  // Find column indices - support various common column names
+  const dateIdx = headers.findIndex(h => 
+    h.includes("date") || h.includes("day") || h.includes("timestamp")
+  );
+  const timeIdx = headers.findIndex(h => 
+    h.includes("time") && !h.includes("timestamp")
+  );
+  const glucoseIdx = headers.findIndex(h => 
+    h.includes("glucose") || h.includes("reading") || h.includes("value") || 
+    h.includes("bg") || h.includes("blood sugar") || h.includes("mg/dl")
+  );
+  
+  const readings: ParsedReading[] = [];
+  
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    
+    // Handle quoted CSV values
+    const values: string[] = [];
+    let current = "";
+    let inQuotes = false;
+    
+    for (const char of line) {
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === "," && !inQuotes) {
+        values.push(current.trim());
+        current = "";
+      } else {
+        current += char;
+      }
+    }
+    values.push(current.trim());
+    
+    // Extract glucose value
+    let glucose = 0;
+    if (glucoseIdx >= 0 && values[glucoseIdx]) {
+      glucose = parseFloat(values[glucoseIdx].replace(/[^\d.]/g, ""));
+    } else {
+      // Try to find a numeric value that looks like glucose (typically 40-400)
+      for (const val of values) {
+        const num = parseFloat(val.replace(/[^\d.]/g, ""));
+        if (num >= 40 && num <= 400) {
+          glucose = num;
+          break;
+        }
+      }
+    }
+    
+    if (isNaN(glucose) || glucose === 0) continue;
+    
+    // Extract date
+    let dateStr = "";
+    if (dateIdx >= 0 && values[dateIdx]) {
+      dateStr = formatDateForDisplay(values[dateIdx]);
+    } else {
+      // Look for date-like values
+      for (const val of values) {
+        if (val.match(/\d{1,4}[-/]\d{1,2}[-/]\d{1,4}/) || 
+            val.match(/[A-Za-z]{3}\s+\d{1,2}/)) {
+          dateStr = formatDateForDisplay(val);
+          break;
+        }
+      }
+    }
+    if (!dateStr) dateStr = `Row ${i}`;
+    
+    // Extract time
+    let timeStr = "";
+    if (timeIdx >= 0 && values[timeIdx]) {
+      timeStr = formatTimeForDisplay(values[timeIdx]);
+    } else if (dateIdx >= 0 && values[dateIdx]) {
+      // Time might be embedded in timestamp
+      const timestamp = values[dateIdx];
+      const timeMatch = timestamp.match(/(\d{1,2}:\d{2}(:\d{2})?(\s*[AP]M)?)/i);
+      if (timeMatch) {
+        timeStr = formatTimeForDisplay(timeMatch[1]);
+      }
+    }
+    if (!timeStr) {
+      // Look for time-like values
+      for (const val of values) {
+        if (val.match(/^\d{1,2}:\d{2}/)) {
+          timeStr = formatTimeForDisplay(val);
+          break;
+        }
+      }
+    }
+    if (!timeStr) timeStr = "--:--";
+    
+    // Extract raw date for unique day counting
+    let rawDate = "";
+    if (dateIdx >= 0 && values[dateIdx]) {
+      const dateVal = values[dateIdx].trim();
+      // Try to parse and format as YYYY-MM-DD
+      const parsedDate = new Date(dateVal);
+      if (!isNaN(parsedDate.getTime())) {
+        rawDate = parsedDate.toISOString().split("T")[0];
+      } else {
+        rawDate = dateVal; // Use as-is if can't parse
+      }
+    }
+
+    readings.push({
+      date: dateStr,
+      time: timeStr,
+      glucose: Math.round(glucose),
+      flag: determineFlag(glucose),
+      rawDate: rawDate || dateStr, // Fallback to display date
+    });
+  }
+  
+  return readings;
+}
+
+function formatDateForDisplay(dateStr: string): string {
+  const cleaned = dateStr.trim();
+  
+  // Try parsing as a date
+  const date = new Date(cleaned);
+  if (!isNaN(date.getTime())) {
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return `${months[date.getMonth()]} ${date.getDate()}`;
+  }
+  
+  // Return as-is if can't parse, but truncate if too long
+  return cleaned.length > 12 ? cleaned.substring(0, 12) : cleaned;
+}
+
+function formatTimeForDisplay(timeStr: string): string {
+  const cleaned = timeStr.trim();
+  
+  // Extract HH:MM from various formats
+  const match = cleaned.match(/(\d{1,2}):(\d{2})/);
+  if (match) {
+    const hour = match[1].padStart(2, "0");
+    const minute = match[2];
+    return `${hour}:${minute}`;
+  }
+  
+  return cleaned.length > 8 ? cleaned.substring(0, 8) : cleaned;
+}
 
 const ACCEPTED_TYPES = [
   "application/pdf",
@@ -99,14 +248,22 @@ const flagStyle: Record<ParsedReading["flag"], string> = {
   high:   "bg-red-100 text-red-700 border-red-200",
 };
 
-export default function UploadScreen() {
+interface UploadScreenProps {
+  onImportComplete?: () => void;
+}
+
+export default function UploadScreen({ onImportComplete }: UploadScreenProps = {}) {
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [dragging, setDragging] = useState(false);
   const [showReadings, setShowReadings] = useState(false);
   const [expandedFile, setExpandedFile] = useState<string | null>(null);
+  const [allReadings, setAllReadings] = useState<ParsedReading[]>([]);
+  const [isImporting, setIsImporting] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  
+  const { addGlucoseEntry } = useHealthData();
 
-  const processFiles = useCallback((incoming: File[]) => {
+  const processFiles = useCallback(async (incoming: File[]) => {
     const valid = incoming.filter(f =>
       ACCEPTED_TYPES.includes(f.type) || ACCEPTED_EXTENSIONS.some(ext => f.name.toLowerCase().endsWith(ext))
     );
@@ -120,6 +277,7 @@ export default function UploadScreen() {
         type: f.type || "application/octet-stream",
         status: "uploading" as UploadStatus,
         progress: 0,
+        file: f,
       })),
       ...invalid.map(f => ({
         id: `${f.name}-${Date.now()}-${Math.random()}`,
@@ -134,27 +292,54 @@ export default function UploadScreen() {
 
     setFiles(prev => [...prev, ...newEntries]);
 
-    // Simulate upload progress for valid files
-    newEntries.filter(e => e.status === "uploading").forEach(entry => {
+    // Process valid files
+    for (const entry of newEntries.filter(e => e.status === "uploading")) {
+      const file = valid.find(f => f.name === entry.name);
+      
+      // Simulate upload progress
       let progress = 0;
       const interval = setInterval(() => {
         progress += Math.random() * 25 + 10;
         if (progress >= 100) {
           progress = 100;
           clearInterval(interval);
-          setFiles(prev =>
-            prev.map(f =>
-              f.id === entry.id ? { ...f, progress: 100, status: "done" } : f
-            )
-          );
-          setShowReadings(true);
         } else {
           setFiles(prev =>
             prev.map(f => (f.id === entry.id ? { ...f, progress } : f))
           );
         }
-      }, 300);
-    });
+      }, 200);
+
+      // Parse CSV files
+      let readings: ParsedReading[] = [];
+      if (file && (file.name.toLowerCase().endsWith(".csv") || file.type === "text/csv")) {
+        try {
+          const content = await file.text();
+          readings = parseCSV(content);
+        } catch (err) {
+          console.error("Error parsing CSV:", err);
+        }
+      }
+
+      // Wait for progress animation to complete
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      clearInterval(interval);
+
+      setFiles(prev =>
+        prev.map(f =>
+          f.id === entry.id 
+            ? { ...f, progress: 100, status: "done", readings } 
+            : f
+        )
+      );
+
+      // Update all readings
+      if (readings.length > 0) {
+        setAllReadings(prev => [...prev, ...readings]);
+      }
+      
+      setShowReadings(true);
+    }
   }, []);
 
   const onDrop = useCallback((e: React.DragEvent) => {
@@ -169,17 +354,36 @@ export default function UploadScreen() {
   };
 
   const removeFile = (id: string) => {
+    const fileToRemove = files.find(f => f.id === id);
     setFiles(prev => prev.filter(f => f.id !== id));
+    
+    // Remove readings from this file
+    if (fileToRemove?.readings) {
+      const readingsToRemove = new Set(
+        fileToRemove.readings.map(r => `${r.date}-${r.time}-${r.glucose}`)
+      );
+      setAllReadings(prev => 
+        prev.filter(r => !readingsToRemove.has(`${r.date}-${r.time}-${r.glucose}`))
+      );
+    }
+    
     if (files.filter(f => f.id !== id && f.status === "done").length === 0) {
       setShowReadings(false);
+      setAllReadings([]);
     }
   };
 
   const doneCount  = files.filter(f => f.status === "done").length;
   const errorCount = files.filter(f => f.status === "error").length;
-  const avgGlucose = Math.round(MOCK_READINGS.reduce((s, r) => s + r.glucose, 0) / MOCK_READINGS.length);
-  const lowCount   = MOCK_READINGS.filter(r => r.flag === "low").length;
-  const highCount  = MOCK_READINGS.filter(r => r.flag === "high").length;
+  const avgGlucose = allReadings.length > 0 
+    ? Math.round(allReadings.reduce((s, r) => s + r.glucose, 0) / allReadings.length)
+    : 0;
+  const lowCount   = allReadings.filter(r => r.flag === "low").length;
+  const highCount  = allReadings.filter(r => r.flag === "high").length;
+  
+  // Calculate unique days covered using rawDate for accurate counting
+  const uniqueDates = new Set(allReadings.map(r => r.rawDate || r.date));
+  const daysCovered = uniqueDates.size;
 
   return (
     <div className="flex flex-col gap-8 max-w-5xl mx-auto">
@@ -350,14 +554,28 @@ export default function UploadScreen() {
                     className="rounded-xl p-4 text-xs font-mono leading-6"
                     style={{ background: "var(--muted)", color: "var(--muted-foreground)" }}
                   >
-                    <span className="font-bold text-foreground">Patient:</span> Hamsini R. &nbsp;|&nbsp;
-                    <span className="font-bold text-foreground">Period:</span> Apr 3–5, 2025 &nbsp;|&nbsp;
-                    <span className="font-bold text-foreground">Device:</span> Freestyle Libre 3{"\n"}
-                    <br />
-                    <span className="font-bold text-foreground">Readings extracted:</span> {MOCK_READINGS.length} &nbsp;|&nbsp;
-                    <span className="font-bold text-foreground">Avg glucose:</span> {avgGlucose} mg/dL &nbsp;|&nbsp;
-                    <span className="font-bold text-foreground">Low events:</span> {lowCount} &nbsp;|&nbsp;
-                    <span className="font-bold text-foreground">High events:</span> {highCount}
+                    {file.readings && file.readings.length > 0 ? (
+                      <>
+                        <span className="font-bold text-foreground">File:</span> {file.name} &nbsp;|&nbsp;
+                        <span className="font-bold text-foreground">Type:</span> {file.name.toLowerCase().endsWith(".csv") ? "CSV Data" : "Document"}{"\n"}
+                        <br />
+                        <span className="font-bold text-foreground">Readings extracted:</span> {file.readings.length} &nbsp;|&nbsp;
+                        <span className="font-bold text-foreground">Avg glucose:</span> {Math.round(file.readings.reduce((s, r) => s + r.glucose, 0) / file.readings.length)} mg/dL &nbsp;|&nbsp;
+                        <span className="font-bold text-foreground">Low events:</span> {file.readings.filter(r => r.flag === "low").length} &nbsp;|&nbsp;
+                        <span className="font-bold text-foreground">High events:</span> {file.readings.filter(r => r.flag === "high").length}
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-bold text-foreground">File:</span> {file.name} &nbsp;|&nbsp;
+                        <span className="font-bold text-foreground">Type:</span> {file.name.toLowerCase().endsWith(".csv") ? "CSV" : file.name.toLowerCase().endsWith(".pdf") ? "PDF" : "Image"}{"\n"}
+                        <br />
+                        <span className="text-muted-foreground">
+                          {file.name.toLowerCase().endsWith(".csv") 
+                            ? "No glucose readings found in CSV. Ensure the file has columns like 'glucose', 'reading', or 'value'."
+                            : "PDF and image parsing requires AI processing. CSV files are parsed automatically."}
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
@@ -367,7 +585,7 @@ export default function UploadScreen() {
       )}
 
       {/* ── Parsed readings table ── */}
-      {showReadings && (
+      {showReadings && allReadings.length > 0 && (
         <div className="bg-card rounded-3xl border border-border overflow-hidden">
           {/* Header block */}
           <div className="flex items-center justify-between px-7 py-5" style={{ borderBottom: "1px solid var(--border)" }}>
@@ -378,15 +596,48 @@ export default function UploadScreen() {
               <div>
                 <h2 className="font-extrabold text-lg text-foreground">Readings Extracted</h2>
                 <p className="text-muted-foreground text-sm font-light">
-                  {MOCK_READINGS.length} glucose entries detected · AI confidence 94%
+                  {allReadings.length} glucose entries detected from CSV
                 </p>
               </div>
             </div>
             <button
-              className="px-5 py-2.5 rounded-xl font-bold text-sm transition-all hover:opacity-90 hover:scale-105"
+              onClick={() => {
+                if (allReadings.length === 0 || isImporting) return;
+                setIsImporting(true);
+                
+                // Convert readings to glucose entries and add to health data
+                allReadings.forEach((reading) => {
+                  // Determine time slot based on hour
+                  const hour = parseInt(reading.time.split(":")[0] || "12", 10);
+                  let timeSlot: "Morning" | "Afternoon" | "Night" = "Afternoon";
+                  if (hour >= 5 && hour < 12) timeSlot = "Morning";
+                  else if (hour >= 12 && hour < 18) timeSlot = "Afternoon";
+                  else timeSlot = "Night";
+                  
+                  // Use rawDate if available, otherwise try to parse display date
+                  let dateStr = reading.rawDate || new Date().toISOString().split("T")[0];
+                  
+                  addGlucoseEntry({
+                    date: dateStr,
+                    time: timeSlot,
+                    glucose: reading.glucose,
+                  });
+                });
+                
+                // Clear state and navigate
+                setTimeout(() => {
+                  setAllReadings([]);
+                  setFiles([]);
+                  setShowReadings(false);
+                  setIsImporting(false);
+                  onImportComplete?.();
+                }, 500);
+              }}
+              disabled={isImporting || allReadings.length === 0}
+              className="px-5 py-2.5 rounded-xl font-bold text-sm transition-all hover:opacity-90 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
               style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
             >
-              Import to Dashboard
+              {isImporting ? "Importing..." : `Import ${allReadings.length} Readings`}
             </button>
           </div>
 
@@ -396,7 +647,7 @@ export default function UploadScreen() {
               { label: "Average", value: `${avgGlucose} mg/dL`, blockColor: "#0F4D92" },
               { label: "Low events", value: lowCount.toString(), blockColor: "#ca8a04" },
               { label: "High events", value: highCount.toString(), blockColor: "#E53E3E" },
-              { label: "Days covered", value: "3 days", blockColor: "#B0E0E6" },
+              { label: "Days covered", value: `${daysCovered} day${daysCovered !== 1 ? "s" : ""}`, blockColor: "#B0E0E6" },
             ].map(({ label, value, blockColor }) => (
               <div
                 key={label}
@@ -424,7 +675,7 @@ export default function UploadScreen() {
                 </tr>
               </thead>
               <tbody>
-                {MOCK_READINGS.map((r, i) => (
+                {allReadings.map((r, i) => (
                   <tr
                     key={i}
                     className="border-t border-border transition-colors hover:bg-muted/40"
@@ -435,6 +686,9 @@ export default function UploadScreen() {
                       <div className="flex items-center gap-2">
                         {r.flag === "low" && (
                           <AlertTriangle size={13} className="text-yellow-600" aria-hidden="true" />
+                        )}
+                        {r.flag === "high" && (
+                          <AlertTriangle size={13} className="text-red-600" aria-hidden="true" />
                         )}
                         <span className="font-extrabold font-mono text-foreground">{r.glucose}</span>
                       </div>

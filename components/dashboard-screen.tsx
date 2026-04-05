@@ -6,7 +6,35 @@ import {
   ReferenceLine, ReferenceDot, Tooltip,
   BarChart, Bar, Cell,
 } from "recharts";
-import { TrendingDown, AlertTriangle, CalendarDays, Zap } from "lucide-react";
+import { TrendingDown, TrendingUp, Minus, AlertTriangle, CalendarDays, Zap, Activity, ShieldCheck, Shield, ShieldAlert } from "lucide-react";
+import { useHealthData } from "@/contexts/health-data-context";
+
+const RISK_CONFIG = {
+  LOW: {
+    color: "#10B981",
+    bgColor: "rgba(16, 185, 129, 0.1)",
+    borderColor: "rgba(16, 185, 129, 0.4)",
+    label: "Low Risk",
+    icon: ShieldCheck,
+    pulseClass: "",
+  },
+  MEDIUM: {
+    color: "#F59E0B",
+    bgColor: "rgba(245, 158, 11, 0.1)",
+    borderColor: "rgba(245, 158, 11, 0.4)",
+    label: "Moderate Risk",
+    icon: Shield,
+    pulseClass: "pulse-medium",
+  },
+  HIGH: {
+    color: "#E53E3E",
+    bgColor: "rgba(229, 62, 62, 0.1)",
+    borderColor: "rgba(229, 62, 62, 0.4)",
+    label: "High Risk",
+    icon: ShieldAlert,
+    pulseClass: "pulse-high",
+  },
+};
 
 /* ── Illustrations ── */
 function HeartBeatIllustration() {
@@ -119,20 +147,61 @@ const sessions: { id: "morning" | "afternoon" | "night"; label: string; icon: st
 
 export default function DashboardScreen() {
   const [view, setView] = useState<"day" | "week" | "month">("day");
-  const [logs, setLogs] = useState<LogEntry[]>([
-    { time: "morning", value: 108 },
-    { time: "afternoon", value: 94 },
-  ]);
   const [inputVal, setInputVal] = useState("");
   const [inputSlot, setInputSlot] = useState<"morning" | "afternoon" | "night">("morning");
 
+  // Get real data from context
+  const { glucoseEntries, riskPrediction, addGlucoseEntry, getTodayEntries } = useHealthData();
+  const todayData = getTodayEntries();
+  
+  // Risk prediction from context (automatically calculated using LBGI formula)
+  const { lbgi, riskLevel, predictedGlucose, trend, confidence, factors } = riskPrediction;
+  const riskConfig = RISK_CONFIG[riskLevel];
+  const RiskIcon = riskConfig.icon;
+
+  // Calculate current glucose from latest entry
+  const latestEntry = glucoseEntries.length > 0 
+    ? glucoseEntries.sort((a, b) => b.date.localeCompare(a.date) || 
+        ({ Night: 2, Afternoon: 1, Morning: 0 }[b.time] - { Night: 2, Afternoon: 1, Morning: 0 }[a.time]))[0]
+    : null;
+  const currentGlucose = latestEntry?.glucose || 0;
+
+  // Calculate average from today's readings
+  const todayAvg = todayData.glucose.length > 0
+    ? Math.round(todayData.glucose.reduce((acc, e) => acc + e.glucose, 0) / todayData.glucose.length)
+    : 0;
+
+  // Count risk events (readings below 70 or above 140)
+  const riskEvents = glucoseEntries.filter(e => e.glucose < 70 || e.glucose > 140).length;
+
+  // Calculate stability score based on variance
+  const recentValues = glucoseEntries.slice(-14).map(e => e.glucose);
+  const avgValue = recentValues.length > 0 ? recentValues.reduce((a, b) => a + b, 0) / recentValues.length : 100;
+  const variance = recentValues.length > 0 
+    ? recentValues.reduce((acc, g) => acc + Math.pow(g - avgValue, 2), 0) / recentValues.length 
+    : 0;
+  const stability = Math.max(0, Math.min(100, Math.round(100 - Math.sqrt(variance) * 2)));
+
   const data = useMemo(makeData, []);
   const lowPoint = data.find(d => !d.isPast && d.glucose < 70);
+  
+  const TrendIcon = trend > 2 ? TrendingUp : trend < -2 ? TrendingDown : Minus;
+  const trendColor = trend > 2 ? "#E53E3E" : trend < -2 ? "#10B981" : "#6B7280";
 
   function addLog() {
     const v = parseFloat(inputVal);
     if (!isNaN(v) && v > 0) {
-      setLogs(l => [...l, { time: inputSlot, value: v }]);
+      const today = new Date().toISOString().split("T")[0];
+      const timeSlotMap: Record<string, "Morning" | "Afternoon" | "Night"> = {
+        morning: "Morning",
+        afternoon: "Afternoon",
+        night: "Night",
+      };
+      addGlucoseEntry({
+        date: today,
+        time: timeSlotMap[inputSlot],
+        glucose: v,
+      });
       setInputVal("");
     }
   }
@@ -151,10 +220,10 @@ export default function DashboardScreen() {
       {/* ── Top stat cards ── */}
       <div className="grid grid-cols-4 gap-4">
         {[
-          { label: "Current", value: "88", unit: "mg/dL", sub: "Declining", color: "text-primary", icon: <DropletIllustration />, blockColor: "#0F4D92" },
-          { label: "Avg Today", value: "97", unit: "mg/dL", sub: "Within range", color: "text-primary", icon: null, blockColor: "#4D9DE0" },
-          { label: "Risk Events", value: "2", unit: "today", sub: "High alerts", color: "text-destructive", icon: null, blockColor: "#E53E3E" },
-          { label: "Stability", value: "74%", unit: "score", sub: "Moderate", color: "text-primary", icon: null, blockColor: "#B0E0E6" },
+          { label: "Current", value: String(currentGlucose || "—"), unit: "mg/dL", sub: trend < -2 ? "Declining" : trend > 2 ? "Rising" : "Stable", color: "text-primary", icon: <DropletIllustration />, blockColor: "#0F4D92" },
+          { label: "Avg Today", value: String(todayAvg || "—"), unit: "mg/dL", sub: todayAvg > 70 && todayAvg < 140 ? "Within range" : "Out of range", color: "text-primary", icon: null, blockColor: "#4D9DE0" },
+          { label: "Risk Events", value: String(riskEvents), unit: "total", sub: "High alerts", color: "text-destructive", icon: null, blockColor: "#E53E3E" },
+          { label: "Stability", value: `${stability}%`, unit: "score", sub: stability > 70 ? "Good" : stability > 50 ? "Moderate" : "Low", color: "text-primary", icon: null, blockColor: "#B0E0E6" },
         ].map(({ label, value, unit, sub, color, icon, blockColor }) => (
           <div key={label} className="bg-card rounded-2xl border border-border shadow-sm flex flex-col overflow-hidden relative">
             {/* Bold color block top strip */}
@@ -304,18 +373,71 @@ export default function DashboardScreen() {
         {/* Right column: log + prediction */}
         <div className="flex flex-col gap-4">
 
-          {/* Prediction card */}
-          <div className="pulse-high bg-destructive/10 border-2 border-destructive/40 rounded-2xl p-5 flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-              <AlertTriangle size={16} className="text-destructive" />
-              <span className="text-xs font-bold font-mono uppercase text-destructive tracking-wider">High Risk</span>
+          {/* Auto Risk Prediction Card - Based on LBGI formula */}
+          <div 
+            className={`${riskConfig.pulseClass} rounded-2xl p-5 flex flex-col gap-3 border-2`}
+            style={{ 
+              backgroundColor: riskConfig.bgColor, 
+              borderColor: riskConfig.borderColor 
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <RiskIcon size={18} style={{ color: riskConfig.color }} />
+                <span 
+                  className="text-xs font-bold font-mono uppercase tracking-wider"
+                  style={{ color: riskConfig.color }}
+                >
+                  {riskConfig.label}
+                </span>
+              </div>
+              <div 
+                className="px-2 py-0.5 rounded-full text-xs font-mono flex items-center gap-1"
+                style={{ backgroundColor: `${riskConfig.color}20`, color: riskConfig.color }}
+              >
+                <Activity size={10} />
+                {confidence}%
+              </div>
             </div>
-            <p className="font-bold text-foreground text-sm leading-snug">
-              Glucose predicted to hit <span className="text-destructive">65 mg/dL</span> in ~45 min
+            
+            {/* LBGI Score */}
+            <div className="flex items-end gap-2">
+              <span 
+                className="text-3xl font-extrabold font-mono"
+                style={{ color: riskConfig.color }}
+              >
+                {lbgi.toFixed(2)}
+              </span>
+              <span className="text-xs text-muted-foreground mb-1">LBGI</span>
+            </div>
+            
+            <p className="text-sm text-foreground leading-snug">
+              Predicted glucose: <span style={{ color: riskConfig.color, fontWeight: 700 }}>{predictedGlucose} mg/dL</span> in ~2h
             </p>
+            
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono">
-              <TrendingDown size={12} /> -4.2 mg/dL per 10 min
+              <TrendIcon size={12} style={{ color: trendColor }} />
+              {trend > 0 ? "+" : ""}{trend.toFixed(1)} mg/dL trend
             </div>
+            
+            {/* Risk factors summary */}
+            {factors.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-1">
+                {factors.slice(0, 3).map((f, i) => (
+                  <span 
+                    key={i}
+                    className="text-xs px-2 py-0.5 rounded-full border"
+                    style={{ 
+                      borderColor: f.impact === "negative" ? "#E53E3E30" : f.impact === "positive" ? "#10B98130" : "#6B728030",
+                      color: f.impact === "negative" ? "#E53E3E" : f.impact === "positive" ? "#10B981" : "#6B7280",
+                      backgroundColor: f.impact === "negative" ? "#E53E3E10" : f.impact === "positive" ? "#10B98110" : "#6B728010"
+                    }}
+                  >
+                    {f.label}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Quick log */}
@@ -356,14 +478,18 @@ export default function DashboardScreen() {
                 style={{ background: "var(--primary)", color: "var(--primary-foreground)" }}
               >Add</button>
             </div>
-            {/* Today's log */}
+            {/* Today's log from context */}
             <div className="flex flex-col gap-1.5 max-h-28 overflow-y-auto">
-              {logs.map((l, i) => (
-                <div key={i} className="flex items-center justify-between text-xs font-mono bg-muted rounded-lg px-3 py-1.5">
-                  <span className="text-muted-foreground capitalize">{l.time}</span>
-                  <span className="font-bold text-primary">{l.value} mg/dL</span>
-                </div>
-              ))}
+              {todayData.glucose.length > 0 ? (
+                todayData.glucose.map((entry) => (
+                  <div key={entry.id} className="flex items-center justify-between text-xs font-mono bg-muted rounded-lg px-3 py-1.5">
+                    <span className="text-muted-foreground">{entry.time}</span>
+                    <span className="font-bold text-primary">{entry.glucose} mg/dL</span>
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs text-muted-foreground text-center py-2">No readings today</p>
+              )}
             </div>
           </div>
 

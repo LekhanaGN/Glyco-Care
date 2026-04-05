@@ -4,8 +4,9 @@ import { useState, useMemo } from "react";
 import {
   ArrowUp, ArrowDown, Minus, ChevronDown, ChevronRight,
   ChevronUp, SlidersHorizontal, X, Calendar, TrendingUp,
-  TrendingDown, AlertCircle
+  TrendingDown, AlertCircle, Plus, Check, Clock
 } from "lucide-react";
+import { useHealthData } from "@/contexts/health-data-context";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
   ReferenceLine, CartesianGrid
@@ -216,10 +217,64 @@ export default function GlucoseLogScreen() {
   const [showFilters, setShowFilters] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  
+  // New glucose logging form state
+  const [showLogForm, setShowLogForm] = useState(false);
+  const [newGlucose, setNewGlucose] = useState("");
+  const [newTime, setNewTime] = useState<TimeSlot>("Morning");
+  const [newMeal, setNewMeal] = useState("");
+  const [newMedication, setNewMedication] = useState("");
+  const [logSuccess, setLogSuccess] = useState(false);
+  
+  const { addGlucoseEntry, glucoseEntries: contextEntries } = useHealthData();
+
+  // Handle new glucose log
+  const handleLogGlucose = () => {
+    const value = parseFloat(newGlucose);
+    if (!isNaN(value) && value > 0) {
+      const today = new Date().toISOString().split("T")[0];
+      addGlucoseEntry({
+        date: today,
+        time: newTime,
+        glucose: value,
+        meal: newMeal || undefined,
+        medication: newMedication || undefined,
+      });
+      setNewGlucose("");
+      setNewMeal("");
+      setNewMedication("");
+      setLogSuccess(true);
+      setTimeout(() => {
+        setLogSuccess(false);
+        setShowLogForm(false);
+      }, 1500);
+    }
+  };
+
+  // Get last logged info
+  const getLastLoggedInfo = () => {
+    if (contextEntries.length === 0) return null;
+    const sorted = [...contextEntries].sort((a, b) => {
+      const dateCompare = b.date.localeCompare(a.date);
+      if (dateCompare !== 0) return dateCompare;
+      const timeOrder = { Morning: 0, Afternoon: 1, Night: 2 };
+      return timeOrder[b.time] - timeOrder[a.time];
+    });
+    return sorted[0];
+  };
+  const lastLogged = getLastLoggedInfo();
+
+  /* Merge RAW seed data with context entries (removing duplicates by id) */
+  const allEntries = useMemo(() => {
+    const rawIds = new Set(RAW.map(r => r.id));
+    // Context entries that aren't in RAW (imported/manually added)
+    const newEntries = contextEntries.filter(e => !rawIds.has(e.id));
+    return [...RAW, ...newEntries];
+  }, [contextEntries]);
 
   /* Enrich entries with change direction */
   const enriched = useMemo(() => {
-    const sorted = [...RAW].sort((a, b) => {
+    const sorted = [...allEntries].sort((a, b) => {
       const timeOrder = { Morning: 0, Afternoon: 1, Night: 2 };
       return a.date.localeCompare(b.date) || timeOrder[a.time] - timeOrder[b.time];
     });
@@ -228,7 +283,7 @@ export default function GlucoseLogScreen() {
       risk: riskOf(entry.glucose),
       dir: changeOf(entry.glucose, i > 0 ? sorted[i - 1].glucose : null),
     }));
-  }, []);
+  }, [allEntries]);
 
   /* Apply filters + sort */
   const filtered = useMemo(() => {
@@ -273,15 +328,15 @@ export default function GlucoseLogScreen() {
   /* Day entries for modal */
   const dayEntries = useMemo(() => {
     if (!selectedDate) return [];
-    return RAW.filter(r => r.date === selectedDate);
-  }, [selectedDate]);
+    return allEntries.filter(r => r.date === selectedDate);
+  }, [selectedDate, allEntries]);
 
   /* Stat overview cards */
-  const allGlucoses = RAW.map(r => r.glucose);
-  const overallAvg  = Math.round(allGlucoses.reduce((a, b) => a + b, 0) / allGlucoses.length);
-  const overallHigh = Math.max(...allGlucoses);
-  const overallLow  = Math.min(...allGlucoses);
-  const riskCount   = RAW.filter(r => riskOf(r.glucose) === "High").length;
+  const allGlucoses = allEntries.map(r => r.glucose);
+  const overallAvg  = allGlucoses.length > 0 ? Math.round(allGlucoses.reduce((a, b) => a + b, 0) / allGlucoses.length) : 0;
+  const overallHigh = allGlucoses.length > 0 ? Math.max(...allGlucoses) : 0;
+  const overallLow  = allGlucoses.length > 0 ? Math.min(...allGlucoses) : 0;
+  const riskCount   = allEntries.filter(r => riskOf(r.glucose) === "High").length;
 
   const statCards = [
     { label: "Overall Avg",    value: `${overallAvg}`,  unit: "mg/dL", blockColor: "#0F4D92" },
@@ -310,6 +365,120 @@ export default function GlucoseLogScreen() {
           Filters &amp; Sort
           {showFilters ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </button>
+      </div>
+
+      {/* ── Quick Log Card ── */}
+      <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
+        <button
+          onClick={() => setShowLogForm(!showLogForm)}
+          className="w-full p-4 flex items-center justify-between hover:bg-muted/30 transition-colors"
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center">
+              <Plus size={22} className="text-primary" />
+            </div>
+            <div className="text-left">
+              <span className="font-bold text-foreground block">Log New Reading</span>
+              <span className="text-sm text-muted-foreground">
+                {lastLogged ? (
+                  <span className="flex items-center gap-1.5">
+                    <Clock size={12} />
+                    Last: <strong>{lastLogged.glucose} mg/dL</strong> on {lastLogged.date}, {lastLogged.time}
+                  </span>
+                ) : (
+                  "Add your first glucose reading"
+                )}
+              </span>
+            </div>
+          </div>
+          {showLogForm ? <ChevronUp size={18} className="text-muted-foreground" /> : <ChevronDown size={18} className="text-muted-foreground" />}
+        </button>
+
+        {showLogForm && (
+          <div className="p-5 pt-0 border-t border-border">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+              {/* Glucose Value */}
+              <div>
+                <label className="text-xs font-mono text-muted-foreground uppercase tracking-wider block mb-1.5">
+                  Glucose (mg/dL) *
+                </label>
+                <input
+                  type="number"
+                  value={newGlucose}
+                  onChange={(e) => setNewGlucose(e.target.value)}
+                  placeholder="105"
+                  className="w-full bg-muted border border-border rounded-xl px-4 py-2.5 text-foreground text-lg font-mono outline-none focus:border-primary/50 transition-colors"
+                />
+              </div>
+              
+              {/* Time Slot */}
+              <div>
+                <label className="text-xs font-mono text-muted-foreground uppercase tracking-wider block mb-1.5">
+                  Time of Day
+                </label>
+                <select
+                  value={newTime}
+                  onChange={(e) => setNewTime(e.target.value as TimeSlot)}
+                  className="w-full bg-muted border border-border rounded-xl px-3 py-2.5 text-foreground outline-none focus:border-primary/50 transition-colors"
+                >
+                  <option value="Morning">Morning</option>
+                  <option value="Afternoon">Afternoon</option>
+                  <option value="Night">Night</option>
+                </select>
+              </div>
+              
+              {/* Meal */}
+              <div>
+                <label className="text-xs font-mono text-muted-foreground uppercase tracking-wider block mb-1.5">
+                  Meal (optional)
+                </label>
+                <input
+                  type="text"
+                  value={newMeal}
+                  onChange={(e) => setNewMeal(e.target.value)}
+                  placeholder="e.g. Rice + dal"
+                  className="w-full bg-muted border border-border rounded-xl px-3 py-2.5 text-foreground text-sm outline-none focus:border-primary/50 transition-colors"
+                />
+              </div>
+              
+              {/* Medication */}
+              <div>
+                <label className="text-xs font-mono text-muted-foreground uppercase tracking-wider block mb-1.5">
+                  Medication (optional)
+                </label>
+                <input
+                  type="text"
+                  value={newMedication}
+                  onChange={(e) => setNewMedication(e.target.value)}
+                  placeholder="e.g. Metformin"
+                  className="w-full bg-muted border border-border rounded-xl px-3 py-2.5 text-foreground text-sm outline-none focus:border-primary/50 transition-colors"
+                />
+              </div>
+            </div>
+
+            <button
+              onClick={handleLogGlucose}
+              disabled={!newGlucose || logSuccess}
+              className="w-full mt-4 py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              style={{ 
+                backgroundColor: logSuccess ? "#10B981" : "var(--primary)", 
+                color: "var(--primary-foreground)" 
+              }}
+            >
+              {logSuccess ? (
+                <>
+                  <Check size={18} />
+                  Logged Successfully!
+                </>
+              ) : (
+                <>
+                  <Plus size={18} />
+                  Add Reading
+                </>
+              )}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Stat cards ── */}

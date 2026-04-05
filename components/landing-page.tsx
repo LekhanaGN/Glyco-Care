@@ -1,29 +1,25 @@
 'use client';
 
+import Image from 'next/image';
 import { Button } from '@/components/ui/button';
-import { ArrowRight, TrendingUp, Activity, Lightbulb, BarChart3, Zap } from 'lucide-react';
+import { ArrowRight, TrendingUp, Activity, Lightbulb, BarChart3 } from 'lucide-react';
 
-/* Pill illustration - matches dashboard style */
-function PillIllustration() {
+/* Brand Logo Component */
+function BrandLogo({ size = 40 }: { size?: number }) {
   return (
-    <svg width="68" height="30" viewBox="0 0 68 30" fill="none" className="bob">
-      <rect x="0" y="0" width="34" height="30" rx="15" fill="#FFF3A3" opacity="0.95"/>
-      <rect x="34" y="0" width="34" height="30" rx="15" fill="#B0E0E6" opacity="0.95"/>
-      <path d="M10 10 Q34 4 58 10" stroke="white" strokeWidth="2" fill="none" strokeLinecap="round" opacity="0.5"/>
-      <line x1="34" y1="3" x2="34" y2="27" stroke="white" strokeWidth="1.5" opacity="0.6"/>
-    </svg>
-  );
-}
-
-/* Droplet illustration - matches dashboard style */
-function DropletIllustration() {
-  return (
-    <svg width="48" height="56" viewBox="0 0 48 56" fill="none" className="bob">
-      <rect x="2" y="18" width="44" height="32" rx="10" fill="#FFF3A3" opacity="0.9"/>
-      <path d="M24 2 C24 2, 4 28, 4 38 A20 20 0 0 0 44 38 C44 28, 24 2, 24 2Z"
-        fill="#0F4D92" opacity="0.75" />
-      <ellipse cx="17" cy="32" rx="4" ry="6" fill="white" opacity="0.3" />
-    </svg>
+    <div 
+      className="rounded-full overflow-hidden border-2 border-white/30 flex-shrink-0 bg-white"
+      style={{ width: size, height: size }}
+    >
+      <Image
+        src="/images/glycocare-logo.jpeg"
+        alt="GlycoCare"
+        width={size}
+        height={size}
+        className="object-cover w-full h-full"
+        priority
+      />
+    </div>
   );
 }
 
@@ -31,26 +27,26 @@ export default function LandingPage({ onGetStarted }: { onGetStarted: () => void
   return (
     <div className="w-full min-h-screen" style={{ background: 'var(--background)' }}>
       {/* Navigation */}
-      <nav className="sticky top-0 w-full z-40 border-b" style={{ 
+      <nav className="sticky top-0 w-full z-40 border-b" style={{
         background: 'rgba(255, 248, 214, 0.92)',
         borderColor: 'var(--border)'
       }}>
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           {/* Left - Logo and tagline */}
-          <div className="flex flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <PillIllustration />
-              <span className="font-bold text-xs" style={{ color: 'var(--foreground)' }}>GlycoCare</span>
+          <div className="flex items-center gap-3">
+            <BrandLogo size={36} />
+            <div className="flex flex-col">
+              <span className="font-bold text-sm" style={{ color: 'var(--foreground)' }}>GlycoCare</span>
+              <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Manage Your Blood Sugar</span>
             </div>
-            <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Take control of your blood sugar</span>
           </div>
-          
+
           {/* Right - Navigation and CTA */}
           <div className="flex items-center gap-6">
             <button className="transition" style={{ color: 'var(--muted-foreground)' }}>Features</button>
             <button className="transition" style={{ color: 'var(--muted-foreground)' }}>Pricing</button>
             <button className="transition" style={{ color: 'var(--muted-foreground)' }}>About</button>
-            <Button onClick={onGetStarted} className="rounded-full font-semibold" style={{ 
+            <Button onClick={onGetStarted} className="rounded-full font-semibold" style={{
               background: 'var(--primary)',
               color: 'var(--primary-foreground)'
             }}>Get Started</Button>
@@ -70,8 +66,9 @@ export default function LandingPage({ onGetStarted }: { onGetStarted: () => void
               }}>
                 Smart Glucose Management
               </div>
+
               <h1 className="text-5xl lg:text-6xl font-bold leading-tight text-balance" style={{ color: 'var(--foreground)' }}>
-                Take Control of Your Blood Sugar
+                GlycoCare
               </h1>
               <p className="text-lg leading-relaxed text-pretty" style={{ color: 'var(--muted-foreground)' }}>
                 GlycoCare helps you monitor, understand, and improve your glucose levels with personalized insights and real-time alerts.
@@ -263,7 +260,7 @@ export default function LandingPage({ onGetStarted }: { onGetStarted: () => void
           <div className="grid md:grid-cols-4 gap-8 mb-8">
             <div>
               <div className="flex items-center gap-3 mb-4">
-                <PillIllustration />
+                <BrandLogo size={40} />
                 <span className="font-bold" style={{ color: 'var(--sidebar-fg)' }}>GlycoCare</span>
               </div>
               <p className="text-sm opacity-70">Smart glucose management for everyone.</p>

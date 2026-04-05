@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Space_Grotesk, Space_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
+import { HealthDataProvider } from '@/contexts/health-data-context'
 import './globals.css'
 
 const spaceGrotesk = Space_Grotesk({
@@ -45,8 +46,10 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${spaceGrotesk.variable} ${spaceMono.variable}`}>
       <body className="font-sans antialiased">
-        {children}
-        {process.env.NODE_ENV === 'production' && <Analytics />}
+        <HealthDataProvider>
+          {children}
+          {process.env.NODE_ENV === 'production' && <Analytics />}
+        </HealthDataProvider>
       </body>
     </html>
   )
