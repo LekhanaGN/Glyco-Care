@@ -1,0 +1,121 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+  GlycoCare — Bright Yellow + Yale Blue theme
+  Background : Naples Yellow  #F9DC5C
+  Cards      : Alice Blue     #F0F8FF
+  Primary    : Yale Blue      #0F4D92
+  Secondary  : Powder Blue    #B0E0E6
+  Alert      : Soft Red       #E53E3E
+*/
+
+:root {
+  --background: #FFF8D6;
+  --foreground: #0F2A5A;
+
+  --card: #FFFFFF;
+  --card-foreground: #0F2A5A;
+  --popover: #FFFFFF;
+  --popover-foreground: #0F2A5A;
+
+  --primary: #0F4D92;
+  --primary-foreground: #F0F8FF;
+  --secondary: #B0E0E6;
+  --secondary-foreground: #0F2A5A;
+  --accent: #1A6BBF;
+  --accent-foreground: #F0F8FF;
+
+  --muted: #FFF3A3;
+  --muted-foreground: #3A6094;
+
+  --destructive: #E53E3E;
+  --destructive-foreground: #fff;
+
+  --border: #E8DFA0;
+  --input: #FFFCE8;
+  --ring: #0F4D92;
+  --radius: 1.25rem;
+
+  --chart-1: #0F4D92;
+  --chart-2: #1A6BBF;
+  --chart-3: #4D9DE0;
+  --chart-4: #B0E0E6;
+  --chart-5: #E53E3E;
+
+  --sidebar-bg: #0F4D92;
+  --sidebar-fg: #F0F8FF;
+  --sidebar-muted: #4D82C0;
+  --sidebar-active: #F9DC5C;
+  --sidebar-active-fg: #0F2A5A;
+}
+
+@theme inline {
+  --font-sans: var(--font-space-grotesk), 'Space Grotesk', sans-serif;
+  --font-mono: 'Space Mono', monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 8px);
+  --radius-md: calc(var(--radius) - 4px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+}
+
+/* Alert pulse */
+@keyframes risk-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(229, 62, 62, 0.5); }
+  50%       { box-shadow: 0 0 0 10px rgba(229, 62, 62, 0); }
+}
+.pulse-high { animation: risk-pulse 2s ease-in-out infinite; }
+
+/* Floating bob */
+@keyframes bob {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-6px); }
+}
+.bob { animation: bob 3s ease-in-out infinite; }
+
+/* Spin slow */
+@keyframes spin-slow {
+  to { transform: rotate(360deg); }
+}
+.spin-slow { animation: spin-slow 12s linear infinite; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #C5D8F0; border-radius: 99px; }
